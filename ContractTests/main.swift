@@ -9,7 +9,9 @@ struct ContractTests {
       try testEnvelope()
       try await testNotesArgumentIsolation()
       try await testBoundedNotesRead()
-      print("4 contract tests passed")
+      try await testRelaxedNotesSearchPayload()
+      try await testNotesColdStartRetry()
+      print("6 contract tests passed")
     } catch {
       FileHandle.standardError.write(Data("contract test failed: \(error)\n".utf8))
       Foundation.exit(1)
@@ -41,6 +43,9 @@ struct ContractTests {
       throw ContractFailure("automation was not invoked")
     }
     try require(!record.script.contains(hostile), "content must not enter executable OSA source")
+    try require(
+      record.script.contains(#"Application("com.apple.Notes")"#),
+      "Notes must resolve by bundle identifier")
     let payload =
       try JSONSerialization.jsonObject(with: Data(record.arguments[1].utf8)) as? [String: Any]
     try require(payload?["content"] as? String == hostile, "content must travel as serialized data")
@@ -56,6 +61,58 @@ struct ContractTests {
       let record = await executor.record
       try require(record == nil, "invalid read must fail before automation")
     }
+  }
+
+  static func testRelaxedNotesSearchPayload() async throws {
+    let executor = RecordingExecutor(response: "[]")
+    let service = NotesService(executor: executor)
+    _ = try await service.search(
+      query: "Проект анализ данных",
+      account: nil,
+      folder: nil,
+      limit: 10
+    )
+    guard let record = await executor.record else {
+      throw ContractFailure("search automation was not invoked")
+    }
+    let payload =
+      try JSONSerialization.jsonObject(with: Data(record.arguments[1].utf8)) as? [String: Any]
+    try require(
+      payload?["queryTokens"] as? [String]
+        == ["проект", "анализ", "данных"],
+      "search must emit Unicode-normalized tokens")
+  }
+
+  static func testNotesColdStartRetry() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("apple-notes-reminders-contract-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let executable = directory.appendingPathComponent("mock-osascript")
+    let script = #"""
+      #!/bin/sh
+      state="${0}.state"
+      if [ ! -f "$state" ]; then
+        : > "$state"
+        printf '%s\n' "execution error: Application can't be found. (-2700)" >&2
+        exit 1
+      fi
+      printf '[]'
+      """#
+    try Data(script.utf8).write(to: executable)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o700],
+      ofItemAtPath: executable.path
+    )
+
+    let executor = ProcessOSAExecutor(executableURL: executable)
+    let output = try await executor.execute(script: "", arguments: [])
+
+    try require(String(data: output, encoding: .utf8) == "[]", "cold-start retry output")
+    try require(
+      FileManager.default.fileExists(atPath: executable.path + ".state"),
+      "cold-start failure must execute before the successful retry")
   }
 
   static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {

@@ -83,6 +83,11 @@ mcp
 
 Dates accept ISO-8601, `yyyy-MM-dd`, `yyyy-MM-dd HH:mm`, `today`, `tomorrow`, or `now`. Local formats use the Mac's current calendar and time zone.
 
+Notes search preserves case-insensitive substring matching and falls back to requiring every
+Unicode-normalized query token in the title or plaintext. Punctuation and extra words in the note
+therefore do not prevent a match; the fallback remains deterministic rather than using edit-distance
+guessing.
+
 ## MCP server
 
 Run the local stdio server:
@@ -104,13 +109,17 @@ Example MCP configuration:
 }
 ```
 
-The MCP surface returns both human-readable JSON text and `structuredContent`. Delete tools require `confirm: true`, even if the host separately auto-approves the tool call.
+The MCP surface returns both human-readable JSON text and `structuredContent`. Use
+`permissions_status` to diagnose the exact agent-host context and `permissions_authorize` to request
+access from that context after user approval. Delete tools require `confirm: true`, even if the host
+separately auto-approves the tool call.
 
 See [ZeroClaw setup](docs/zeroclaw.md) for a least-privilege Rene configuration. The reusable agent skill is in [`skills/apple-notes-reminders`](skills/apple-notes-reminders/SKILL.md).
 
 ## Safety properties
 
 - User values are passed to the Notes automation program as serialized arguments, never interpolated into executable OSA source.
+- Notes.app is resolved by bundle identifier, and transient cold-start resolution failures are retried once.
 - Read results are bounded to 1–1000 items.
 - Mutations address stable Apple identifiers.
 - Note updates support `--if-modified-at` optimistic concurrency.

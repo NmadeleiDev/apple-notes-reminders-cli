@@ -7,7 +7,7 @@ struct AppleNotesReminders: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "apple-notes-reminders",
     abstract: "Native, structured access to Apple Notes and Reminders.",
-    version: "0.1.1",
+    version: "0.1.2",
     subcommands: [Notes.self, Reminders.self, Authorize.self, Doctor.self, MCPCommand.self]
   )
 }

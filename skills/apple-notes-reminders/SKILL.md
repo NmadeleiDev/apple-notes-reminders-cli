@@ -33,5 +33,8 @@ Use the MCP tools whose names end in `notes_*` and `reminders_*`. Treat Apple st
 
 - Do not broaden a search beyond the user's requested account, folder, or list without saying so.
 - Do not expose unrelated note bodies or reminder notes in the response.
-- Do not retry a permission denial repeatedly. Tell the user to run `apple-notes-reminders authorize <service>` and `doctor` under the agent host identity.
+- On a permission denial, call `permissions_status` once. Its result is authoritative for the current MCP host.
+- If the service is `not_determined`, ask the user for approval, then call `permissions_authorize` from MCP so macOS attributes the request to the agent host.
+- If the service is `denied`, tell the user which service is denied and direct them to **System Settings → Privacy & Security → Automation / Reminders**. Do not claim that running the CLI from Terminal authorizes a daemon-hosted MCP server.
+- Do not retry a permission denial or authorization request repeatedly.
 - Treat tool errors as authoritative. Never report success from intent alone.
