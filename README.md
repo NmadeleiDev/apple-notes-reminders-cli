@@ -133,6 +133,8 @@ swift build -c release
 
 `ContractTests` exists for Command Line Tools-only installations that omit the test runtime shipped with full Xcode. CI runs both the normal Swift Testing suite and this standalone safety-contract suite.
 
+Full Xcode builds and verifies the universal signed archive with `scripts/package.sh <version> <output-directory>`.
+
 Architecture and security decisions are documented in [docs/architecture.md](docs/architecture.md). Contributions are welcome under [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

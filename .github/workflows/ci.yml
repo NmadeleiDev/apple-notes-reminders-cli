@@ -42,3 +42,6 @@ jobs:
 
       - name: Validate release metadata and skill
         run: scripts/check.sh
+
+      - name: Build and verify universal release archive
+        run: scripts/package.sh 0.1.0 "$RUNNER_TEMP/release"
