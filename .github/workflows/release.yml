@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify tag and metadata
+        run: scripts/check.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Package and checksum
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: scripts/package.sh "$VERSION" dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/apple-notes-reminders-${GITHUB_REF_NAME}-macos-universal.tar.gz" \
+            dist/SHA256SUMS \
+            dist/dependency-graph.json \
+            --verify-tag \
+            --generate-notes \
+            --title "Apple Notes & Reminders ${GITHUB_REF_NAME}"

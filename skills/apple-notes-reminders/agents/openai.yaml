@@ -1,0 +1,4 @@
+interface:
+  display_name: "Apple Notes & Reminders"
+  short_description: "Manage Apple Notes and Reminders safely"
+  default_prompt: "Use the Apple Notes and Reminders CLI to complete this task safely, preferring stable IDs and confirming destructive changes."
