@@ -29,6 +29,9 @@ lipo "$package_directory/apple-notes-reminders" -verify_arch arm64 x86_64
 
 swift package show-dependencies --format json >"$output_directory/dependency-graph.json"
 tar -C "$output_directory" -czf "$archive" apple-notes-reminders
-shasum -a 256 "$archive" "$output_directory/dependency-graph.json" >"$output_directory/SHA256SUMS"
+(
+  cd "$output_directory"
+  shasum -a 256 "$(basename "$archive")" dependency-graph.json >SHA256SUMS
+)
 
 printf '%s\n' "$archive"

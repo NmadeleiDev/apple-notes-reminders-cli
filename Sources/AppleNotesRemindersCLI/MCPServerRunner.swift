@@ -17,7 +17,7 @@ struct MCPServerRunner {
   func run() async throws {
     let server = Server(
       name: "apple-notes-reminders",
-      version: "0.1.0",
+      version: "0.1.1",
       title: "Apple Notes & Reminders",
       instructions:
         "Use stable IDs from read tools for mutations. Delete tools require confirm=true. Prefer append over replacing a note when preserving rich content matters.",
