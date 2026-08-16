@@ -5,7 +5,16 @@ description: Manage Apple Notes and Apple Reminders through the apple-notes-remi
 
 # Apple Notes and Reminders
 
-Use the MCP tools whose names end in `notes_*` and `reminders_*`. Treat Apple stable IDs as the only safe mutation handles.
+Use only tools present in the active tool list. Never invent a tool name, alias, or generic `action` wrapper. Use the MCP tools whose names end in `notes_*` and `reminders_*`. Treat Apple stable IDs as the only safe mutation handles.
+
+## ZeroClaw tool names
+
+ZeroClaw exposes MCP tools as `<server-name>__<tool-name>`. With the recommended server name `apple_productivity`, call these permission tools exactly:
+
+- `apple_productivity__permissions_status` with `{}`
+- `apple_productivity__permissions_authorize` with `{"service":"notes"}` or `{"service":"reminders"}`
+
+Do not call bare permission names under ZeroClaw, and never guess names such as `apple_reminders_check_permissions_tool`. If the configured server name differs, select the exact qualified name shown in the active tool list.
 
 ## Workflow
 
@@ -33,8 +42,8 @@ Use the MCP tools whose names end in `notes_*` and `reminders_*`. Treat Apple st
 
 - Do not broaden a search beyond the user's requested account, folder, or list without saying so.
 - Do not expose unrelated note bodies or reminder notes in the response.
-- On a permission denial, call `permissions_status` once. Its result is authoritative for the current MCP host.
-- If the service is `not_determined`, ask the user for approval, then call `permissions_authorize` from MCP so macOS attributes the request to the agent host.
+- On a permission denial, call the exposed `permissions_status` tool once. Its result is authoritative for the current MCP host.
+- If the service is `not_determined`, ask the user for approval, then call the exposed `permissions_authorize` tool from MCP so macOS attributes the request to the agent host.
 - If the service is `denied`, tell the user which service is denied and direct them to **System Settings → Privacy & Security → Automation / Reminders**. Do not claim that running the CLI from Terminal authorizes a daemon-hosted MCP server.
 - Do not retry a permission denial or authorization request repeatedly.
 - Treat tool errors as authoritative. Never report success from intent alone.

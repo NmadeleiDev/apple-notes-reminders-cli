@@ -21,6 +21,8 @@ fi
 skill=skills/apple-notes-reminders/SKILL.md
 grep -q '^name: apple-notes-reminders$' "$skill"
 grep -q '^description: .\{40,\}$' "$skill"
+grep -q 'apple_productivity__permissions_status' "$skill"
+grep -q 'apple_productivity__permissions_authorize' "$skill"
 if grep -q 'TODO' "$skill"; then
   echo "Skill contains unresolved TODOs." >&2
   exit 1
