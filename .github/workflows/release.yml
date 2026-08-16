@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify tag and metadata
+        run: scripts/check.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Build universal release binary
+        run: swift build -c release --arch arm64 --arch x86_64 -Xswiftc -warnings-as-errors
+
+      - name: Package and checksum
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/apple-notes-reminders
+          cp .build/apple/Products/Release/apple-notes-reminders dist/apple-notes-reminders/
+          cp README.md LICENSE SECURITY.md dist/apple-notes-reminders/
+          cp -R skills/apple-notes-reminders dist/apple-notes-reminders/
+          codesign --force --sign - \
+            --identifier dev.nmadelei.apple-notes-reminders \
+            --entitlements Config/Release.entitlements \
+            dist/apple-notes-reminders/apple-notes-reminders
+          codesign --verify --strict --verbose=2 dist/apple-notes-reminders/apple-notes-reminders
+          lipo -info dist/apple-notes-reminders/apple-notes-reminders
+          swift package show-dependencies --format json > dist/dependency-graph.json
+          tar -C dist -czf "dist/apple-notes-reminders-${VERSION}-macos-universal.tar.gz" apple-notes-reminders
+          shasum -a 256 "dist/apple-notes-reminders-${VERSION}-macos-universal.tar.gz" dist/dependency-graph.json > dist/SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/apple-notes-reminders-${GITHUB_REF_NAME}-macos-universal.tar.gz" \
+            dist/SHA256SUMS \
+            dist/dependency-graph.json \
+            --verify-tag \
+            --generate-notes \
+            --title "Apple Notes & Reminders ${GITHUB_REF_NAME}"

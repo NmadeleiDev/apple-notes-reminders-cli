@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.nmadelei.apple-notes-reminders</string>
+    <key>CFBundleName</key>
+    <string>apple-notes-reminders</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Apple Notes automation is used only when you invoke a Notes command.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Reminders access is used only to read or change reminders you explicitly request.</string>
+</dict>
+</plist>
