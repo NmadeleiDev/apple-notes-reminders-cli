@@ -4,22 +4,24 @@ public protocol OSAExecuting: Sendable {
   func execute(script: String, arguments: [String]) async throws -> Data
 }
 
-public actor ProcessOSAExecutor: OSAExecuting {
-  private let executableURL: URL
-  private let maximumOutputBytes: Int
+struct OSAProcessResult: Sendable {
+  let standardOutput: Data
+  let standardError: Data
+  let terminationStatus: Int32
+}
 
-  public init(
-    executableURL: URL = URL(fileURLWithPath: "/usr/bin/osascript"),
-    maximumOutputBytes: Int = 16 * 1_024 * 1_024
-  ) {
-    self.executableURL = executableURL
-    self.maximumOutputBytes = maximumOutputBytes
-  }
+protocol OSAProcessRunning: Sendable {
+  func run(executableURL: URL, arguments: [String], standardInput: Data) async throws
+    -> OSAProcessResult
+}
 
-  public func execute(script: String, arguments: [String]) async throws -> Data {
+private struct FoundationOSAProcessRunner: OSAProcessRunning {
+  func run(executableURL: URL, arguments: [String], standardInput: Data) async throws
+    -> OSAProcessResult
+  {
     let process = Process()
     process.executableURL = executableURL
-    process.arguments = ["-l", "JavaScript", "-"] + arguments
+    process.arguments = arguments
 
     let input = Pipe()
     let output = Pipe()
@@ -28,53 +30,112 @@ public actor ProcessOSAExecutor: OSAExecuting {
     process.standardOutput = output
     process.standardError = error
 
-    do {
-      try process.run()
-    } catch {
-      throw AppleProductivityError.backend(
-        service: "Notes", message: "Could not start osascript: \(error.localizedDescription)")
-    }
-
-    input.fileHandleForWriting.write(Data(script.utf8))
+    try process.run()
+    input.fileHandleForWriting.write(standardInput)
     try? input.fileHandleForWriting.close()
     process.waitUntilExit()
 
-    let stdout = output.fileHandleForReading.readDataToEndOfFile()
-    let stderr = error.fileHandleForReading.readDataToEndOfFile()
-    guard stdout.count <= maximumOutputBytes else {
-      throw AppleProductivityError.backend(
-        service: "Notes",
-        message:
-          "Automation output exceeded the \(maximumOutputBytes)-byte safety limit. Narrow the query."
-      )
-    }
+    return OSAProcessResult(
+      standardOutput: output.fileHandleForReading.readDataToEndOfFile(),
+      standardError: error.fileHandleForReading.readDataToEndOfFile(),
+      terminationStatus: process.terminationStatus
+    )
+  }
+}
 
-    guard process.terminationStatus == 0 else {
-      let message =
-        String(data: stderr, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        ?? "osascript exited with status \(process.terminationStatus)"
-      if message.contains("-1743") || message.localizedCaseInsensitiveContains("not authorized") {
-        throw AppleProductivityError.permissionDenied(
-          service: "Notes Automation",
-          recovery:
-            "Allow the invoking application under System Settings > Privacy & Security > Automation."
+public actor ProcessOSAExecutor: OSAExecuting {
+  private let executableURL: URL
+  private let maximumOutputBytes: Int
+  private let processRunner: any OSAProcessRunning
+  private let coldStartRetryDelayNanoseconds: UInt64
+
+  public init(
+    executableURL: URL = URL(fileURLWithPath: "/usr/bin/osascript"),
+    maximumOutputBytes: Int = 16 * 1_024 * 1_024
+  ) {
+    self.executableURL = executableURL
+    self.maximumOutputBytes = maximumOutputBytes
+    self.processRunner = FoundationOSAProcessRunner()
+    self.coldStartRetryDelayNanoseconds = 300_000_000
+  }
+
+  init(
+    executableURL: URL = URL(fileURLWithPath: "/usr/bin/osascript"),
+    maximumOutputBytes: Int = 16 * 1_024 * 1_024,
+    processRunner: any OSAProcessRunning,
+    coldStartRetryDelayNanoseconds: UInt64 = 0
+  ) {
+    self.executableURL = executableURL
+    self.maximumOutputBytes = maximumOutputBytes
+    self.processRunner = processRunner
+    self.coldStartRetryDelayNanoseconds = coldStartRetryDelayNanoseconds
+  }
+
+  public func execute(script: String, arguments: [String]) async throws -> Data {
+    for attempt in 0..<2 {
+      let result: OSAProcessResult
+      do {
+        result = try await processRunner.run(
+          executableURL: executableURL,
+          arguments: ["-l", "JavaScript", "-"] + arguments,
+          standardInput: Data(script.utf8)
+        )
+      } catch {
+        throw AppleProductivityError.backend(
+          service: "Notes", message: "Could not start osascript: \(error.localizedDescription)")
+      }
+
+      guard result.standardOutput.count <= maximumOutputBytes else {
+        throw AppleProductivityError.backend(
+          service: "Notes",
+          message:
+            "Automation output exceeded the \(maximumOutputBytes)-byte safety limit. Narrow the query."
         )
       }
-      if message.contains("NOT_FOUND:") {
-        let identifier = message.components(separatedBy: "NOT_FOUND:").last ?? "unknown"
-        throw AppleProductivityError.notFound(kind: "note or folder", identifier: identifier)
+
+      if result.terminationStatus == 0 { return result.standardOutput }
+
+      let message =
+        String(data: result.standardError, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? "osascript exited with status \(result.terminationStatus)"
+      if attempt == 0, Self.isColdStartFailure(message) {
+        if coldStartRetryDelayNanoseconds > 0 {
+          try await Task.sleep(nanoseconds: coldStartRetryDelayNanoseconds)
+        }
+        continue
       }
-      if message.contains("AMBIGUOUS:") {
-        throw AppleProductivityError.ambiguous(
-          kind: "Notes destination", query: message, matches: [])
-      }
-      if message.contains("CONFLICT:") {
-        throw AppleProductivityError.conflict(
-          message.components(separatedBy: "CONFLICT:").last ?? message)
-      }
-      throw AppleProductivityError.backend(service: "Notes", message: message)
+      throw Self.automationError(message: message)
     }
-    return stdout
+
+    throw AppleProductivityError.backend(
+      service: "Notes", message: "Notes automation failed after its cold-start retry.")
+  }
+
+  static func isColdStartFailure(_ message: String) -> Bool {
+    message.contains("-2700")
+      || message.localizedCaseInsensitiveContains("Application can't be found")
+  }
+
+  private static func automationError(message: String) -> AppleProductivityError {
+    if message.contains("-1743") || message.localizedCaseInsensitiveContains("not authorized") {
+      return .permissionDenied(
+        service: "Notes Automation",
+        recovery:
+          "Allow the invoking application under System Settings > Privacy & Security > Automation."
+      )
+    }
+    if message.contains("NOT_FOUND:") {
+      let identifier = message.components(separatedBy: "NOT_FOUND:").last ?? "unknown"
+      return .notFound(kind: "note or folder", identifier: identifier)
+    }
+    if message.contains("AMBIGUOUS:") {
+      return .ambiguous(kind: "Notes destination", query: message, matches: [])
+    }
+    if message.contains("CONFLICT:") {
+      return .conflict(message.components(separatedBy: "CONFLICT:").last ?? message)
+    }
+    return .backend(service: "Notes", message: message)
   }
 }
 
@@ -131,7 +192,13 @@ public actor NotesService: NotesServing {
     try validateLimit(limit)
     return try await call(
       "search",
-      payload: SearchNotesPayload(query: query, account: account, folder: folder, limit: limit)
+      payload: SearchNotesPayload(
+        query: query,
+        queryTokens: Self.searchTokens(for: query),
+        account: account,
+        folder: folder,
+        limit: limit
+      )
     )
   }
 
@@ -216,6 +283,14 @@ public actor NotesService: NotesServing {
       throw AppleProductivityError.invalidArguments("Title must not be empty.")
     }
   }
+
+  static func searchTokens(for query: String) -> [String] {
+    query
+      .precomposedStringWithCompatibilityMapping
+      .lowercased()
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { !$0.isEmpty }
+  }
 }
 
 private struct EmptyPayload: Codable {}
@@ -228,6 +303,7 @@ private struct ListNotesPayload: Codable {
 }
 private struct SearchNotesPayload: Codable {
   let query: String
+  let queryTokens: [String]
   let account: String?
   let folder: String?
   let limit: Int
@@ -259,11 +335,11 @@ private struct DeleteResult: Codable {
 }
 
 extension NotesService {
-  fileprivate static let script = #"""
+  static let script = #"""
     function run(argv) {
       const operation = argv[0];
       const args = JSON.parse(argv[1] || "{}");
-      const notes = Application("Notes");
+      const notes = Application("com.apple.Notes");
 
       function value(fn, fallback) {
         try { const result = fn(); return result === undefined || result === null ? fallback : result; }
@@ -380,16 +456,35 @@ extension NotesService {
         return "<h1>" + escapeHTML(title) + "</h1><div>" + paragraphHTML(content || "") + "</div>";
       }
 
+      function normalizedTokens(text) {
+        return String(text || "")
+          .normalize("NFKC")
+          .toLocaleLowerCase()
+          .match(/[\p{L}\p{N}]+/gu) || [];
+      }
+
+      function matchesQuery(item, rawQuery, queryTokens) {
+        const normalizedQuery = String(rawQuery || "").normalize("NFKC").toLocaleLowerCase();
+        const searchable = (String(item.title || "") + "\n" + String(item.plaintext || ""))
+          .normalize("NFKC")
+          .toLocaleLowerCase();
+        if (searchable.includes(normalizedQuery)) return true;
+
+        const availableTokens = {};
+        normalizedTokens(searchable).forEach(token => { availableTokens[token] = true; });
+        return queryTokens.length > 0 && queryTokens.every(token => availableTokens[token]);
+      }
+
       function filteredNotes(account, folder, query, limit) {
-        const lowered = query ? String(query).toLowerCase() : null;
+        const queryTokens = query ? (args.queryTokens || normalizedTokens(query)) : [];
         const results = [];
         const candidates = allNotes();
         for (let index = 0; index < candidates.length && results.length < limit; index += 1) {
-          const item = noteObject(candidates[index], Boolean(lowered));
+          const item = noteObject(candidates[index], Boolean(query));
           if (account && item.account !== account) continue;
           if (folder && item.folder !== folder && !(item.folder || "").endsWith("/" + folder)) continue;
-          if (lowered && !item.title.toLowerCase().includes(lowered) && !(item.plaintext || "").toLowerCase().includes(lowered)) continue;
-          if (!lowered) { item.bodyHTML = null; item.plaintext = null; }
+          if (query && !matchesQuery(item, query, queryTokens)) continue;
+          if (!query) { item.bodyHTML = null; item.plaintext = null; }
           results.push(item);
         }
         return results;

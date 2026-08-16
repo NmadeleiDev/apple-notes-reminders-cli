@@ -31,8 +31,10 @@ auto_approve = [
   "apple-productivity__reminders_list",
   "apple-productivity__reminders_get",
   "apple-productivity__reminders_search",
+  "apple-productivity__permissions_status",
 ]
 always_ask = [
+  "apple-productivity__permissions_authorize",
   "apple-productivity__notes_delete",
   "apple-productivity__reminders_delete",
 ]
@@ -40,4 +42,4 @@ always_ask = [
 
 Copy `skills/apple-notes-reminders` into Rene's per-agent skill directory or a configured shared skill bundle. The skill is instruction-only; it does not require script-bearing skills to be enabled.
 
-Restart Rene's session after changing MCP or skill bundles. Run `apple-notes-reminders authorize all` and `doctor` under the same macOS host identity that launches Rene before expecting MCP calls to succeed.
+Restart Rene's session after changing MCP or skill bundles. Use `permissions_status` to inspect the permission state attributed to Rene's exact MCP host. With explicit user approval, `permissions_authorize` requests access from that same host and may display a macOS prompt. A CLI authorization launched from Terminal does not necessarily grant a daemon-hosted MCP server access.

@@ -17,10 +17,10 @@ struct MCPServerRunner {
   func run() async throws {
     let server = Server(
       name: "apple-notes-reminders",
-      version: "0.1.1",
+      version: "0.1.2",
       title: "Apple Notes & Reminders",
       instructions:
-        "Use stable IDs from read tools for mutations. Delete tools require confirm=true. Prefer append over replacing a note when preserving rich content matters.",
+        "Use stable IDs from read tools for mutations. Delete tools require confirm=true. Prefer append over replacing a note when preserving rich content matters. Use permissions_status to diagnose access in this MCP host; permissions_authorize requires explicit user approval and may show a macOS prompt.",
       capabilities: .init(tools: .init())
     )
 
@@ -41,6 +41,27 @@ struct MCPServerRunner {
     let arguments = request.arguments ?? [:]
     do {
       switch request.name {
+      case "permissions_status":
+        async let notesStatus = notes.permissionStatus()
+        async let remindersStatus = reminders.permissionStatus()
+        return try success(
+          PermissionResponse(
+            notes: await notesStatus,
+            reminders: await remindersStatus
+          ))
+      case "permissions_authorize":
+        let service = try arguments.requiredString("service")
+        let granted: Bool
+        switch service {
+        case "notes":
+          granted = try await notes.authorize()
+        case "reminders":
+          granted = try await reminders.authorize()
+        default:
+          throw AppleProductivityError.invalidArguments(
+            "Argument 'service' must be 'notes' or 'reminders'.")
+        }
+        return try success(AuthorizationResponse(service: service, granted: granted))
       case "notes_accounts":
         return try success(await notes.accounts())
       case "notes_folders":
@@ -185,6 +206,16 @@ private struct DeleteResponse: Codable {
   let id: String
 }
 
+private struct PermissionResponse: Codable {
+  let notes: String
+  let reminders: String
+}
+
+private struct AuthorizationResponse: Codable {
+  let service: String
+  let granted: Bool
+}
+
 extension Dictionary where Key == String, Value == MCP.Value {
   fileprivate func string(_ key: String) -> String? { self[key]?.stringValue }
   fileprivate func integer(_ key: String) -> Int? { self[key]?.intValue }
@@ -220,6 +251,20 @@ extension Dictionary where Key == String, Value == MCP.Value {
 
 extension MCPServerRunner {
   fileprivate static let tools: [Tool] = [
+    tool(
+      "permissions_status",
+      "Report Notes and Reminders permission states for this exact MCP host process.",
+      properties: [:]),
+    tool(
+      "permissions_authorize",
+      "Request macOS access from this MCP host. May show a system prompt; requires explicit user approval.",
+      properties: [
+        "service": .object([
+          "type": "string",
+          "description": "Service to authorize.",
+          "enum": .array(["notes", "reminders"].map(MCP.Value.string)),
+        ])
+      ], required: ["service"]),
     tool("notes_accounts", "List Apple Notes accounts.", properties: [:]),
     tool(
       "notes_folders", "List Apple Notes folders and stable IDs.",

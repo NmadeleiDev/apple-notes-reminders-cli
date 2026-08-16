@@ -31,9 +31,75 @@ struct CoreTests {
     _ = try await service.create(title: "Safe", content: hostile, account: nil, folder: nil)
     let record = try #require(await executor.record)
     #expect(!record.script.contains(hostile))
+    #expect(record.script.contains(#"Application("com.apple.Notes")"#))
     let payload = try #require(
       JSONSerialization.jsonObject(with: Data(record.arguments[1].utf8)) as? [String: Any])
     #expect(payload["content"] as? String == hostile)
+  }
+
+  @Test("Notes search normalizes punctuation and connector-word-tolerant tokens")
+  func notesSearchEmitsNormalizedTokens() async throws {
+    let executor = RecordingOSAExecutor(response: "[]")
+    let service = NotesService(executor: executor)
+
+    _ = try await service.search(
+      query: "Проект анализ данных",
+      account: nil,
+      folder: nil,
+      limit: 10
+    )
+
+    let record = try #require(await executor.record)
+    let payload = try #require(
+      JSONSerialization.jsonObject(with: Data(record.arguments[1].utf8)) as? [String: Any])
+    #expect(
+      payload["queryTokens"] as? [String]
+        == ["проект", "анализ", "данных"])
+  }
+
+  @Test("Notes automation retries one cold-start application-resolution failure")
+  func notesAutomationRetriesColdStartFailure() async throws {
+    let runner = SequencedOSAProcessRunner(results: [
+      OSAProcessResult(
+        standardOutput: Data(),
+        standardError: Data("execution error: Application can't be found. (-2700)".utf8),
+        terminationStatus: 1
+      ),
+      OSAProcessResult(
+        standardOutput: Data("[]".utf8),
+        standardError: Data(),
+        terminationStatus: 0
+      ),
+    ])
+    let executor = ProcessOSAExecutor(
+      processRunner: runner,
+      coldStartRetryDelayNanoseconds: 0
+    )
+
+    let output = try await executor.execute(script: "", arguments: [])
+
+    #expect(String(data: output, encoding: .utf8) == "[]")
+    #expect(await runner.callCount == 2)
+  }
+
+  @Test("Notes automation does not retry permission failures")
+  func notesAutomationDoesNotRetryPermissionFailure() async throws {
+    let runner = SequencedOSAProcessRunner(results: [
+      OSAProcessResult(
+        standardOutput: Data(),
+        standardError: Data("Not authorized to send Apple events. (-1743)".utf8),
+        terminationStatus: 1
+      )
+    ])
+    let executor = ProcessOSAExecutor(
+      processRunner: runner,
+      coldStartRetryDelayNanoseconds: 0
+    )
+
+    await #expect(throws: AppleProductivityError.self) {
+      _ = try await executor.execute(script: "", arguments: [])
+    }
+    #expect(await runner.callCount == 1)
   }
 
   @Test("Notes rejects unbounded limits before invoking automation")
@@ -44,6 +110,20 @@ struct CoreTests {
       _ = try await service.list(account: nil, folder: nil, limit: 1_001)
     }
     #expect(await executor.record == nil)
+  }
+}
+
+private actor SequencedOSAProcessRunner: OSAProcessRunning {
+  private var results: [OSAProcessResult]
+  private(set) var callCount = 0
+
+  init(results: [OSAProcessResult]) { self.results = results }
+
+  func run(executableURL: URL, arguments: [String], standardInput: Data) async throws
+    -> OSAProcessResult
+  {
+    callCount += 1
+    return results.removeFirst()
   }
 }
 
