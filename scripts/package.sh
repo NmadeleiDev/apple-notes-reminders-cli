@@ -15,7 +15,7 @@ archive="$output_directory/apple-notes-reminders-$archive_version-macos-universa
 cd "$repository_root"
 mkdir -p "$package_directory"
 
-swift build -c release --arch arm64 --arch x86_64 -Xswiftc -warnings-as-errors
+swift build -c release --product apple-notes-reminders --arch arm64 --arch x86_64 -Xswiftc -warnings-as-errors
 cp .build/apple/Products/Release/apple-notes-reminders "$package_directory/"
 cp README.md LICENSE SECURITY.md "$package_directory/"
 cp -R skills/apple-notes-reminders "$package_directory/"
