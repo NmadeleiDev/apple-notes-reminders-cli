@@ -5,4 +5,4 @@
 *.xcworkspace/
 .env
 coverage/
-apple-notes-reminders
+/apple-notes-reminders
