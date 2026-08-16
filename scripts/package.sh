@@ -13,12 +13,12 @@ package_directory="$output_directory/apple-notes-reminders"
 archive="$output_directory/apple-notes-reminders-$archive_version-macos-universal.tar.gz"
 
 cd "$repository_root"
-mkdir -p "$package_directory"
+mkdir -p "$package_directory/skills"
 
 swift build -c release --product apple-notes-reminders --arch arm64 --arch x86_64
 cp .build/apple/Products/Release/apple-notes-reminders "$package_directory/"
 cp README.md LICENSE SECURITY.md "$package_directory/"
-cp -R skills/apple-notes-reminders "$package_directory/"
+cp -R skills/apple-notes-reminders "$package_directory/skills/"
 
 codesign --force --sign - \
   --identifier dev.nmadelei.apple-notes-reminders \
