@@ -26,12 +26,16 @@ struct CoreTests {
       response:
         #"{"id":"test","title":"Safe","account":null,"folder":null,"createdAt":null,"modifiedAt":null,"bodyHTML":"","plaintext":"","passwordProtected":false}"#
     )
-    let service = NotesService(executor: executor)
+    let service = NotesService(
+      executor: executor,
+      applicationLocator: StubNotesApplicationLocator(path: "/System/Applications/Notes.app")
+    )
 
     _ = try await service.create(title: "Safe", content: hostile, account: nil, folder: nil)
     let record = try #require(await executor.record)
     #expect(!record.script.contains(hostile))
-    #expect(record.script.contains(#"Application("com.apple.Notes")"#))
+    #expect(record.script.contains(#"Application(argv[2])"#))
+    #expect(record.arguments[2] == "/System/Applications/Notes.app")
     let payload = try #require(
       JSONSerialization.jsonObject(with: Data(record.arguments[1].utf8)) as? [String: Any])
     #expect(payload["content"] as? String == hostile)
@@ -40,7 +44,10 @@ struct CoreTests {
   @Test("Notes search normalizes punctuation and connector-word-tolerant tokens")
   func notesSearchEmitsNormalizedTokens() async throws {
     let executor = RecordingOSAExecutor(response: "[]")
-    let service = NotesService(executor: executor)
+    let service = NotesService(
+      executor: executor,
+      applicationLocator: StubNotesApplicationLocator(path: "/System/Applications/Notes.app")
+    )
 
     _ = try await service.search(
       query: "Проект анализ данных",
@@ -105,12 +112,35 @@ struct CoreTests {
   @Test("Notes rejects unbounded limits before invoking automation")
   func notesRejectsUnboundedLimitBeforeAutomation() async throws {
     let executor = RecordingOSAExecutor(response: "[]")
-    let service = NotesService(executor: executor)
+    let service = NotesService(
+      executor: executor,
+      applicationLocator: StubNotesApplicationLocator(path: "/System/Applications/Notes.app")
+    )
     await #expect(throws: AppleProductivityError.self) {
       _ = try await service.list(account: nil, folder: nil, limit: 1_001)
     }
     #expect(await executor.record == nil)
   }
+
+  @Test("Notes reports an unavailable application before invoking automation")
+  func notesReportsUnavailableApplication() async throws {
+    let executor = RecordingOSAExecutor(response: "[]")
+    let service = NotesService(
+      executor: executor,
+      applicationLocator: StubNotesApplicationLocator(path: nil)
+    )
+
+    await #expect(throws: AppleProductivityError.self) {
+      _ = try await service.accounts()
+    }
+    #expect(await executor.record == nil)
+  }
+}
+
+private struct StubNotesApplicationLocator: NotesApplicationLocating {
+  let path: String?
+
+  func applicationPath() -> String? { path }
 }
 
 private actor SequencedOSAProcessRunner: OSAProcessRunning {

@@ -40,6 +40,8 @@ MCP uses the official Swift MCP SDK over stdio. Tool results return the same env
 
 The executable embeds Reminders and Apple Events usage descriptions. Release binaries use a stable bundle identifier. Local source builds are ad-hoc identities; macOS may associate their prompts with Terminal or the agent host. A release can be Developer ID signed and notarized without changing the data model.
 
+When a hardened-runtime application launches the MCP server, macOS may attribute Apple Events and EventKit access to that responsible host. Such a host must carry its own Apple Events entitlement and privacy usage descriptions. The CLI cannot add entitlements to its parent process or enclosing application.
+
 ## Threat model
 
 The primary risks are prompt-driven destructive actions, stale reads followed by overwrites, command/OSA injection, excessive data disclosure, and broad macOS privacy grants.

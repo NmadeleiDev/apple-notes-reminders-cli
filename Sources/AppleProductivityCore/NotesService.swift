@@ -1,7 +1,31 @@
+import AppKit
 import Foundation
 
 public protocol OSAExecuting: Sendable {
   func execute(script: String, arguments: [String]) async throws -> Data
+}
+
+protocol NotesApplicationLocating: Sendable {
+  func applicationPath() -> String?
+}
+
+private struct WorkspaceNotesApplicationLocator: NotesApplicationLocating {
+  func applicationPath() -> String? {
+    let bundleIdentifier = "com.apple.Notes"
+    let candidates =
+      NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+      .compactMap(\.bundleURL)
+      + [NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)]
+      .compactMap { $0 }
+      + [
+        URL(fileURLWithPath: "/System/Applications/Notes.app"),
+        URL(fileURLWithPath: "/Applications/Notes.app"),
+      ]
+
+    return candidates.first { candidate in
+      Bundle(url: candidate)?.bundleIdentifier == bundleIdentifier
+    }?.path
+  }
 }
 
 struct OSAProcessResult: Sendable {
@@ -141,11 +165,21 @@ public actor ProcessOSAExecutor: OSAExecuting {
 
 public actor NotesService: NotesServing {
   private let executor: any OSAExecuting
+  private let applicationLocator: any NotesApplicationLocating
   private let encoder = JSONEncoder()
   private let decoder = ProductivityCoding.decoder()
 
   public init(executor: any OSAExecuting = ProcessOSAExecutor()) {
     self.executor = executor
+    self.applicationLocator = WorkspaceNotesApplicationLocator()
+  }
+
+  init(
+    executor: any OSAExecuting,
+    applicationLocator: any NotesApplicationLocating
+  ) {
+    self.executor = executor
+    self.applicationLocator = applicationLocator
   }
 
   public func permissionStatus() async -> String {
@@ -259,8 +293,14 @@ public actor NotesService: NotesServing {
       throw AppleProductivityError.backend(
         service: "Notes", message: "Could not encode request payload.")
     }
+    guard let applicationPath = applicationLocator.applicationPath() else {
+      throw AppleProductivityError.backend(
+        service: "Notes",
+        message: "Notes.app with bundle identifier com.apple.Notes could not be located."
+      )
+    }
     let data = try await executor.execute(
-      script: Self.script, arguments: [operation, payloadString])
+      script: Self.script, arguments: [operation, payloadString, applicationPath])
     do {
       return try decoder.decode(Response.self, from: data)
     } catch {
@@ -339,7 +379,7 @@ extension NotesService {
     function run(argv) {
       const operation = argv[0];
       const args = JSON.parse(argv[1] || "{}");
-      const notes = Application("com.apple.Notes");
+      const notes = Application(argv[2]);
 
       function value(fn, fallback) {
         try { const result = fn(); return result === undefined || result === null ? fallback : result; }
