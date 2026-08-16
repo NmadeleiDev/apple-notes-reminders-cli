@@ -25,7 +25,7 @@ codesign --force --sign - \
   --entitlements Config/Release.entitlements \
   "$package_directory/apple-notes-reminders"
 codesign --verify --strict --verbose=2 "$package_directory/apple-notes-reminders"
-lipo -verify_arch arm64 x86_64 "$package_directory/apple-notes-reminders"
+lipo "$package_directory/apple-notes-reminders" -verify_arch arm64 x86_64
 
 swift package show-dependencies --format json >"$output_directory/dependency-graph.json"
 tar -C "$output_directory" -czf "$archive" apple-notes-reminders
