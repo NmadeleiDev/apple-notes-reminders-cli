@@ -22,7 +22,8 @@ let package = Package(
     .target(
       name: "AppleProductivityCore",
       linkerSettings: [
-        .linkedFramework("EventKit")
+        .linkedFramework("AppKit"),
+        .linkedFramework("EventKit"),
       ]
     ),
     .executableTarget(

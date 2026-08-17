@@ -44,8 +44,11 @@ struct ContractTests {
     }
     try require(!record.script.contains(hostile), "content must not enter executable OSA source")
     try require(
-      record.script.contains(#"Application("com.apple.Notes")"#),
-      "Notes must resolve by bundle identifier")
+      record.script.contains(#"Application(argv[2])"#),
+      "Notes must receive its resolved application path as data")
+    try require(
+      record.arguments.count == 3 && record.arguments[2].hasSuffix("/Notes.app"),
+      "Notes must resolve its installed application path")
     let payload =
       try JSONSerialization.jsonObject(with: Data(record.arguments[1].utf8)) as? [String: Any]
     try require(payload?["content"] as? String == hostile, "content must travel as serialized data")
